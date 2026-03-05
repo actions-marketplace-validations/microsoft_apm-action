@@ -2,13 +2,15 @@ import * as core from '@actions/core';
 import * as exec from '@actions/exec';
 import * as fs from 'fs';
 import * as path from 'path';
+import * as yaml from 'js-yaml';
 import { ensureApmInstalled } from './installer';
 
 /**
  * Run the APM action: install agent primitives.
  *
  * Default behavior (no inputs): reads apm.yml, runs apm install. Done.
- * With `dependencies` input: generates a temporary apm.yml from the inline list.
+ * With `dependencies` input: parses YAML array, installs each as extra deps (additive to apm.yml).
+ * With `skip-manifest: true`: ignores apm.yml, installs only inline deps.
  * With `compile: true`: runs apm compile after install to generate AGENTS.md.
  * With `script` input: runs an apm script after install.
  */
@@ -22,15 +24,31 @@ export async function run(): Promise<void> {
     const resolvedDir = path.resolve(workingDir);
     core.info(`Working directory: ${resolvedDir}`);
 
-    // 3. Handle inline dependencies
-    const inlineDeps = core.getInput('dependencies').trim();
-    if (inlineDeps) {
-      await setupInlineDeps(resolvedDir, inlineDeps);
-    }
+    // 3. Parse inputs
+    const depsInput = core.getInput('dependencies').trim();
+    const skipManifest = core.getInput('skip-manifest') === 'true';
 
-    // 4. Run apm install
-    core.info('Installing APM dependencies...');
-    await runApm(['install'], resolvedDir);
+    // 4. Handle skip-manifest: generate a minimal apm.yml from inline deps only
+    if (skipManifest) {
+      if (!depsInput) {
+        throw new Error('skip-manifest requires dependencies input');
+      }
+      const deps = parseDependencies(depsInput);
+      await generateManifest(resolvedDir, deps);
+      await runApm(['install'], resolvedDir);
+    } else {
+      // Default: install from apm.yml (if present), then add inline deps
+      const apmYmlPath = path.join(resolvedDir, 'apm.yml');
+      if (fs.existsSync(apmYmlPath) || !depsInput) {
+        await runApm(['install'], resolvedDir);
+      }
+
+      // Install extra inline deps additively
+      if (depsInput) {
+        const deps = parseDependencies(depsInput);
+        await installDeps(resolvedDir, deps);
+      }
+    }
 
     // 5. Run apm compile (opt-in)
     const compile = core.getInput('compile') === 'true';
@@ -43,8 +61,6 @@ export async function run(): Promise<void> {
     const primitivesPath = path.join(resolvedDir, '.github');
     core.info(`Primitives deployed to: ${primitivesPath}`);
     core.setOutput('primitives-path', primitivesPath);
-
-    // List what was deployed
     await listDeployed(primitivesPath);
 
     // 7. Optionally run a script
@@ -63,38 +79,91 @@ export async function run(): Promise<void> {
   }
 }
 
-/**
- * Generate a temporary apm.yml from inline dependencies.
- */
-async function setupInlineDeps(dir: string, depsBlock: string): Promise<void> {
-  const deps = depsBlock
-    .split('\n')
-    .map(l => l.trim())
-    .filter(l => l && !l.startsWith('#'));
+interface ObjectDep {
+  git: string;
+  path?: string;
+  ref?: string;
+  alias?: string;
+}
 
-  if (deps.length === 0) {
-    core.warning('dependencies input provided but no valid entries found');
-    return;
+type Dependency = string | ObjectDep;
+
+/**
+ * Parse the dependencies YAML input into typed dependency entries.
+ */
+function parseDependencies(input: string): Dependency[] {
+  let parsed: unknown;
+  try {
+    parsed = yaml.load(input);
+  } catch (e) {
+    throw new Error(`Failed to parse dependencies YAML: ${e instanceof Error ? e.message : String(e)}`);
   }
 
+  if (!Array.isArray(parsed)) {
+    // Single string value
+    if (typeof parsed === 'string') {
+      return [parsed];
+    }
+    throw new Error('dependencies input must be a YAML array (e.g. "- owner/repo")');
+  }
+
+  const deps: Dependency[] = [];
+  for (const item of parsed) {
+    if (typeof item === 'string') {
+      deps.push(item);
+    } else if (typeof item === 'object' && item !== null && 'git' in item) {
+      deps.push(item as ObjectDep);
+    } else {
+      throw new Error(`Invalid dependency entry: ${JSON.stringify(item)}. Expected string or {git: url, ...}`);
+    }
+  }
+
+  return deps;
+}
+
+/**
+ * Install dependencies additively via `apm install <dep>`.
+ */
+async function installDeps(dir: string, deps: Dependency[]): Promise<void> {
+  core.info(`Installing ${deps.length} inline dependencies...`);
+  for (const dep of deps) {
+    if (typeof dep === 'string') {
+      await runApm(['install', dep], dir);
+    } else {
+      // Object-form: build the install argument
+      let installArg = dep.git;
+      if (dep.path) {
+        installArg += `#path=${dep.path}`;
+      }
+      if (dep.ref) {
+        installArg += (installArg.includes('#') ? '&' : '#') + `ref=${dep.ref}`;
+      }
+      await runApm(['install', installArg], dir);
+    }
+  }
+}
+
+/**
+ * Generate a fresh apm.yml from inline dependencies (used with skip-manifest).
+ */
+function generateManifest(dir: string, deps: Dependency[]): void {
   const apmYmlPath = path.join(dir, 'apm.yml');
 
-  // Don't overwrite existing apm.yml
-  if (fs.existsSync(apmYmlPath)) {
-    core.info('apm.yml already exists — inline dependencies will be added via apm install');
-    // Use apm install <pkg> to add each one
-    for (const dep of deps) {
-      await runApm(['install', dep], dir);
+  const depEntries = deps.map(dep => {
+    if (typeof dep === 'string') {
+      return `    - ${dep}`;
     }
-    return;
-  }
+    // Object-form YAML
+    let entry = `    - git: ${dep.git}`;
+    if (dep.path) entry += `\n      path: ${dep.path}`;
+    if (dep.ref) entry += `\n      ref: ${dep.ref}`;
+    if (dep.alias) entry += `\n      alias: ${dep.alias}`;
+    return entry;
+  });
 
-  // Generate apm.yml
-  const depLines = deps.map(d => `    - ${d}`).join('\n');
-  const content = `name: inline-workflow\nversion: 1.0.0\ndependencies:\n  apm:\n${depLines}\n`;
-
+  const content = `name: inline-workflow\nversion: 1.0.0\ndependencies:\n  apm:\n${depEntries.join('\n')}\n`;
   fs.writeFileSync(apmYmlPath, content, 'utf-8');
-  core.info(`Generated apm.yml with ${deps.length} inline dependencies`);
+  core.info(`Generated apm.yml with ${deps.length} dependencies (skip-manifest mode)`);
 }
 
 /**

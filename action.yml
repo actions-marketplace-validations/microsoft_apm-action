@@ -19,9 +19,13 @@ inputs:
     required: false
     default: ''
   dependencies:
-    description: 'Inline dependency list (one per line). Used when no apm.yml exists. Accepts owner/repo, HTTPS URLs, SSH URLs.'
+    description: 'YAML array of extra dependencies to install (additive to apm.yml). Supports strings (owner/repo) and objects ({git: url, path: subdir, ref: branch}).'
     required: false
     default: ''
+  skip-manifest:
+    description: 'Skip apm.yml — install only the inline dependencies'
+    required: false
+    default: 'false'
   compile:
     description: 'Run apm compile after install to generate AGENTS.md'
     required: false

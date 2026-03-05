@@ -7,7 +7,7 @@ on:
 
 jobs:
   test-inline-deps:
-    name: Install with inline dependencies
+    name: Install with inline dependencies (additive)
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -16,7 +16,7 @@ jobs:
         uses: microsoft/apm-action@main
         with:
           dependencies: |
-            microsoft/apm-sample-package
+            - microsoft/apm-sample-package
 
       - name: Verify primitives deployed to .github
         run: |
@@ -30,7 +30,6 @@ jobs:
           echo "--- Deployed structure ---"
           find .github -type f | grep -v workflows | head -30
 
-          # Check for skills (style-checker from apm-sample-package)
           for dir in skills agents prompts instructions; do
             if [ -d ".github/$dir" ]; then
               COUNT=$(find ".github/$dir" -type f | wc -l)
@@ -38,7 +37,6 @@ jobs:
             fi
           done
 
-          # AGENTS.md should NOT exist (compile is off by default)
           if [ -f "AGENTS.md" ]; then
             echo "FAIL: AGENTS.md exists but compile was not requested"
             exit 1
@@ -51,6 +49,31 @@ jobs:
           fi
 
           echo "SUCCESS: $TOTAL primitive files deployed to .github"
+
+  test-skip-manifest:
+    name: Install with skip-manifest (exclusive)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run apm-action with skip-manifest
+        uses: microsoft/apm-action@main
+        with:
+          skip-manifest: 'true'
+          dependencies: |
+            - microsoft/apm-sample-package
+
+      - name: Verify primitives deployed
+        run: |
+          echo "=== Checking .github primitives (skip-manifest) ==="
+
+          TOTAL=$(find .github -type f | grep -v workflows | wc -l)
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "FAIL: No primitives deployed"
+            exit 1
+          fi
+
+          echo "SUCCESS: $TOTAL primitive files deployed via skip-manifest"
 
   test-with-compile:
     name: Install + compile from apm.yml
@@ -84,7 +107,6 @@ jobs:
 
           find .github -type f | grep -v workflows | head -20
 
-          # AGENTS.md should exist because compile was requested
           if [ ! -f "AGENTS.md" ]; then
             echo "FAIL: AGENTS.md not found — compile did not run"
             exit 1
