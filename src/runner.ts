@@ -2,16 +2,15 @@ import * as core from '@actions/core';
 import * as exec from '@actions/exec';
 import * as fs from 'fs';
 import * as path from 'path';
-import * as os from 'os';
 import { ensureApmInstalled } from './installer';
 
 /**
- * Run the APM action: install + compile agent primitives.
+ * Run the APM action: install agent primitives.
  *
- * Default behavior (no inputs): reads apm.yml, installs deps, compiles AGENTS.md. Done.
+ * Default behavior (no inputs): reads apm.yml, runs apm install. Done.
  * With `dependencies` input: generates a temporary apm.yml from the inline list.
- * With `isolated: true`: installs to /tmp/apm-isolated instead of repo .github/.
- * With `script` input: runs an apm script after install+compile.
+ * With `compile: true`: runs apm compile after install to generate AGENTS.md.
+ * With `script` input: runs an apm script after install.
  */
 export async function run(): Promise<void> {
   try {
@@ -23,46 +22,36 @@ export async function run(): Promise<void> {
     const resolvedDir = path.resolve(workingDir);
     core.info(`Working directory: ${resolvedDir}`);
 
-    // 3. Handle inline dependencies (Phase 2)
+    // 3. Handle inline dependencies
     const inlineDeps = core.getInput('dependencies').trim();
     if (inlineDeps) {
       await setupInlineDeps(resolvedDir, inlineDeps);
     }
 
-    // 4. Handle isolation mode (Phase 2)
-    const isolated = core.getInput('isolated') === 'true';
-    let effectiveDir = resolvedDir;
-    if (isolated) {
-      effectiveDir = setupIsolatedWorkspace(resolvedDir);
-      core.info(`Isolated mode: primitives will be installed to ${effectiveDir}`);
-    }
-
-    // 5. Run apm install
+    // 4. Run apm install
     core.info('Installing APM dependencies...');
-    await runApm(['install'], effectiveDir);
+    await runApm(['install'], resolvedDir);
 
-    // 6. Run apm compile (unless skipped)
-    const skipCompile = core.getInput('skip-compile') === 'true';
-    if (!skipCompile) {
+    // 5. Run apm compile (opt-in)
+    const compile = core.getInput('compile') === 'true';
+    if (compile) {
       core.info('Compiling agent primitives...');
-      await runApm(['compile'], effectiveDir);
+      await runApm(['compile'], resolvedDir);
     }
 
-    // 7. Verify deployment
-    const primitivesPath = isolated
-      ? path.join(effectiveDir, '.github')
-      : path.join(resolvedDir, '.github');
+    // 6. Verify deployment
+    const primitivesPath = path.join(resolvedDir, '.github');
     core.info(`Primitives deployed to: ${primitivesPath}`);
     core.setOutput('primitives-path', primitivesPath);
 
     // List what was deployed
     await listDeployed(primitivesPath);
 
-    // 8. Optionally run a script
+    // 7. Optionally run a script
     const script = core.getInput('script').trim();
     if (script) {
       core.info(`Running APM script: ${script}`);
-      await runApm(['run', script], effectiveDir);
+      await runApm(['run', script], resolvedDir);
     }
 
     core.setOutput('success', 'true');
@@ -106,26 +95,6 @@ async function setupInlineDeps(dir: string, depsBlock: string): Promise<void> {
 
   fs.writeFileSync(apmYmlPath, content, 'utf-8');
   core.info(`Generated apm.yml with ${deps.length} inline dependencies`);
-}
-
-/**
- * Set up an isolated workspace for agent primitives.
- * Copies apm.yml + apm.lock to /tmp/apm-isolated/ so primitives
- * are installed there instead of polluting the repo's .github/.
- */
-function setupIsolatedWorkspace(sourceDir: string): string {
-  const isolatedDir = path.join(os.tmpdir(), 'apm-isolated');
-  fs.mkdirSync(isolatedDir, { recursive: true });
-
-  // Copy manifest files
-  for (const file of ['apm.yml', 'apm.lock']) {
-    const src = path.join(sourceDir, file);
-    if (fs.existsSync(src)) {
-      fs.copyFileSync(src, path.join(isolatedDir, file));
-    }
-  }
-
-  return isolatedDir;
 }
 
 /**

@@ -1,9 +1,9 @@
 /**
- * Run the APM action: install + compile agent primitives.
+ * Run the APM action: install agent primitives.
  *
- * Default behavior (no inputs): reads apm.yml, installs deps, compiles AGENTS.md. Done.
+ * Default behavior (no inputs): reads apm.yml, runs apm install. Done.
  * With `dependencies` input: generates a temporary apm.yml from the inline list.
- * With `isolated: true`: installs to /tmp/apm-isolated instead of repo .github/.
- * With `script` input: runs an apm script after install+compile.
+ * With `compile: true`: runs apm compile after install to generate AGENTS.md.
+ * With `script` input: runs an apm script after install.
  */
 export declare function run(): Promise<void>;
