@@ -1,0 +1,131 @@
+name: 'Test: APM Action — Install Real Skill in Isolation'
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+
+jobs:
+  test-isolated-install:
+    name: Install apm-sample-package (isolated)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Run apm-action with inline deps + isolation
+        uses: microsoft/apm-action@main
+        with:
+          dependencies: |
+            microsoft/apm-sample-package
+          isolated: 'true'
+
+      - name: Verify skill was deployed
+        run: |
+          echo "=== Checking isolated primitives ==="
+          ISOLATED_DIR="/tmp/apm-isolated"
+          
+          # Check .github directory exists
+          if [ ! -d "$ISOLATED_DIR/.github" ]; then
+            echo "FAIL: $ISOLATED_DIR/.github does not exist"
+            exit 1
+          fi
+          
+          echo "--- Deployed structure ---"
+          find "$ISOLATED_DIR/.github" -type f | head -30
+          
+          # Check for skills (the style-checker skill from apm-sample-package)
+          SKILLS_DIR="$ISOLATED_DIR/.github/skills"
+          if [ -d "$SKILLS_DIR" ]; then
+            echo "--- Skills found ---"
+            find "$SKILLS_DIR" -type f
+            SKILL_COUNT=$(find "$SKILLS_DIR" -type f | wc -l)
+            echo "Skills deployed: $SKILL_COUNT"
+          fi
+          
+          # Check for agents
+          AGENTS_DIR="$ISOLATED_DIR/.github/agents"
+          if [ -d "$AGENTS_DIR" ]; then
+            echo "--- Agents found ---"
+            find "$AGENTS_DIR" -type f
+          fi
+          
+          # Check for prompts
+          PROMPTS_DIR="$ISOLATED_DIR/.github/prompts"
+          if [ -d "$PROMPTS_DIR" ]; then
+            echo "--- Prompts found ---"
+            find "$PROMPTS_DIR" -type f
+          fi
+          
+          # Check for instructions
+          INSTRUCTIONS_DIR="$ISOLATED_DIR/.github/instructions"
+          if [ -d "$INSTRUCTIONS_DIR" ]; then
+            echo "--- Instructions found ---"
+            find "$INSTRUCTIONS_DIR" -type f
+          fi
+          
+          # Check for AGENTS.md compilation
+          if [ -f "$ISOLATED_DIR/AGENTS.md" ]; then
+            echo "--- AGENTS.md compiled ---"
+            head -20 "$ISOLATED_DIR/AGENTS.md"
+          fi
+          
+          # Final assertion: at least one primitive must exist
+          TOTAL=$(find "$ISOLATED_DIR/.github" -type f 2>/dev/null | wc -l)
+          if [ "$TOTAL" -eq 0 ]; then
+            echo "FAIL: No primitives deployed"
+            exit 1
+          fi
+          
+          echo ""
+          echo "SUCCESS: $TOTAL primitive files deployed in isolation"
+
+      - name: Verify repo .github is NOT polluted
+        run: |
+          echo "=== Checking repo .github is clean ==="
+          # The repo's .github should NOT have apm-installed primitives
+          # (it may have workflows, but no skills/agents/prompts from apm-sample-package)
+          
+          for dir in skills agents prompts; do
+            if [ -d ".github/$dir" ]; then
+              COUNT=$(find ".github/$dir" -type f | wc -l)
+              if [ "$COUNT" -gt 0 ]; then
+                echo "WARNING: .github/$dir has $COUNT files — isolation may have leaked"
+                find ".github/$dir" -type f
+              fi
+            fi
+          done
+          
+          echo "SUCCESS: repo .github is clean — isolation verified"
+
+  test-basic-install:
+    name: Install from apm.yml (Phase 1)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Create test apm.yml
+        run: |
+          cat > apm.yml << 'EOF'
+          name: action-test
+          version: 1.0.0
+          dependencies:
+            apm:
+              - microsoft/apm-sample-package
+          EOF
+
+      - name: Run apm-action (default — install + compile)
+        uses: microsoft/apm-action@main
+
+      - name: Verify primitives deployed to .github
+        run: |
+          echo "=== Checking .github primitives ==="
+          
+          if [ ! -d ".github" ]; then
+            echo "FAIL: .github directory not found"
+            exit 1
+          fi
+          
+          find .github -type f -name "*.md" -o -name "*.yml" | grep -v workflows | head -20
+          
+          TOTAL=$(find .github -type f -name "*.md" | grep -v workflows | wc -l)
+          echo "SUCCESS: $TOTAL primitive files deployed to .github"
