@@ -88,6 +88,12 @@ jobs:
               - microsoft/apm-sample-package/.apm/agents/design-reviewer.agent.md
           EOF
 
+      - name: Plant pre-existing primitives that should be cleared
+        run: |
+          mkdir -p .github/agents .github/instructions
+          echo '# Stale agent' > .github/agents/stale.agent.md
+          echo '# Stale instruction' > .github/instructions/stale.instructions.md
+
       - name: Test - isolated with inline deps
         uses: ./
         with:

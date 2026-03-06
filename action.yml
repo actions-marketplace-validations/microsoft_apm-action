@@ -23,7 +23,7 @@ inputs:
     required: false
     default: ''
   isolated:
-    description: 'Ignore apm.yml and pre-existing primitives — install only the inline dependencies into a clean .github/'
+    description: 'Ignore apm.yml and clear pre-existing primitive dirs (instructions/, agents/, skills/, prompts/) under .github/ — install only the inline dependencies'
     required: false
     default: 'false'
   compile:

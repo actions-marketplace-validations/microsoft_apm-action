@@ -153,8 +153,14 @@ const PRIMITIVE_DIRS = ['instructions', 'agents', 'skills', 'prompts'] as const;
  * Remove existing primitive directories so isolated mode starts from a clean slate.
  */
 function clearPrimitives(dir: string): void {
+  const workspace = process.env.GITHUB_WORKSPACE ?? process.cwd();
+  const resolved = path.resolve(dir);
+  if (!resolved.startsWith(path.resolve(workspace))) {
+    throw new Error(`clearPrimitives: resolved dir "${resolved}" is outside workspace "${workspace}"`);
+  }
+
   for (const sub of PRIMITIVE_DIRS) {
-    const subPath = path.join(dir, '.github', sub);
+    const subPath = path.join(resolved, '.github', sub);
     if (fs.existsSync(subPath)) {
       fs.rmSync(subPath, { recursive: true });
       core.info(`Cleared .github/${sub}/`);
@@ -228,7 +234,11 @@ async function listDeployed(primitivesPath: string): Promise<void> {
   const hasAgentsMd = fs.existsSync(path.join(primitivesPath, '..', 'AGENTS.md'));
 
   if (total === 0) {
-    core.info('APM: no primitives deployed');
+    if (hasAgentsMd) {
+      core.info('APM: no primitives deployed (AGENTS.md present)');
+    } else {
+      core.info('APM: no primitives deployed');
+    }
     return;
   }
 

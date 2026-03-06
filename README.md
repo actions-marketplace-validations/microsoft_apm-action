@@ -38,7 +38,7 @@ This installs the APM CLI, reads your `apm.yml`, and runs `apm install`.
 | `apm-version` | No | `latest` | APM version to install |
 | `script` | No | | APM script to run after install |
 | `dependencies` | No | | YAML array of extra dependencies to install (additive to apm.yml) |
-| `isolated` | No | `false` | Ignore apm.yml and pre-existing primitives — install only inline dependencies into a clean `.github/` |
+| `isolated` | No | `false` | Ignore apm.yml and clear pre-existing primitive dirs (`instructions/`, `agents/`, `skills/`, `prompts/`) under `.github/` — install only inline dependencies |
 | `compile` | No | `false` | Run `apm compile` after install to generate AGENTS.md |
 
 ## Outputs
