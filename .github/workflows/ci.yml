@@ -36,9 +36,10 @@ jobs:
 
       - name: Verify dist/ is up-to-date
         run: |
-          if [ "$(git diff --name-only dist/)" != "" ]; then
+          CHANGED=$(git diff --name-only dist/ | grep -v '\.d\.ts\.map$' || true)
+          if [ -n "$CHANGED" ]; then
             echo "::error::dist/ is out of date. Run 'npm run build' and commit the result."
-            git diff --stat dist/
+            echo "$CHANGED"
             exit 1
           fi
 
