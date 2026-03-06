@@ -29903,6 +29903,8 @@ async function run() {
             if (!depsInput) {
                 throw new Error('skip-manifest requires dependencies input');
             }
+            // Clean existing primitives so only inline deps remain
+            clearPrimitives(resolvedDir);
             const deps = parseDependencies(depsInput);
             await generateManifest(resolvedDir, deps);
             await runApm(['install'], resolvedDir);
@@ -29996,6 +29998,19 @@ async function installDeps(dir, deps) {
                 installArg += (installArg.includes('#') ? '&' : '#') + `ref=${dep.ref}`;
             }
             await runApm(['install', installArg], dir);
+        }
+    }
+}
+const PRIMITIVE_DIRS = ['instructions', 'agents', 'skills', 'prompts'];
+/**
+ * Remove existing primitive directories so skip-manifest starts from a clean slate.
+ */
+function clearPrimitives(dir) {
+    for (const sub of PRIMITIVE_DIRS) {
+        const subPath = path.join(dir, '.github', sub);
+        if (fs.existsSync(subPath)) {
+            fs.rmSync(subPath, { recursive: true });
+            core.info(`Cleared .github/${sub}/`);
         }
     }
 }

@@ -101,11 +101,15 @@ jobs:
             echo "::error::Skill primitive not deployed — inline deps were not used"
             exit 1
           fi
-          if find .github/agents -type f -name "design-reviewer.agent.md" 2>/dev/null | grep -q .; then
-            echo "::error::design-reviewer.agent.md found — manifest was NOT skipped"
+          if find .github/agents -type f -name "*.agent.md" 2>/dev/null | grep -q .; then
+            echo "::error::Agent primitive found — pre-existing primitives were NOT cleared"
             exit 1
           fi
-          echo "✅ skip-manifest correctly ignored apm.yml, installed inline deps only"
+          if find .github/instructions -type f -name "*.instructions.md" 2>/dev/null | grep -q .; then
+            echo "::error::Instruction primitive found — pre-existing primitives were NOT cleared"
+            exit 1
+          fi
+          echo "✅ skip-manifest cleared existing primitives, installed only inline deps"
 
   # Integration: compile flag
   test-compile:
